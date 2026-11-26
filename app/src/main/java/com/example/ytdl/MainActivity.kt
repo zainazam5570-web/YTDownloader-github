@@ -2,6 +2,7 @@ package com.example.ytdl
 
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
@@ -31,6 +32,8 @@ class MainActivity : Activity() {
     private lateinit var qualSpin: Spinner
     private lateinit var playlistCb: CheckBox
     private lateinit var btn: Button
+    private lateinit var cookieBtn: Button
+    private lateinit var updBtn: Button
     private lateinit var bar: ProgressBar
     private lateinit var statusTv: TextView
     private lateinit var logTv: TextView
@@ -130,6 +133,19 @@ class MainActivity : Activity() {
         }
         root.addView(btn)
 
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        cookieBtn = Button(this).apply {
+            text = "Cookies (cookies.txt)"
+            setOnClickListener { pickCookies() }
+        }
+        updBtn = Button(this).apply {
+            text = "yt-dlp Update"
+            setOnClickListener { updateYtDlp() }
+        }
+        row2.addView(cookieBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row2.addView(updBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(row2)
+
         bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
         }
@@ -156,6 +172,54 @@ class MainActivity : Activity() {
     private fun log(msg: String) = runOnUiThread {
         logTv.append(msg + "\n")
         logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private val reqCookies = 42
+
+    private fun pickCookies() {
+        val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        startActivityForResult(i, reqCookies)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == reqCookies && resultCode == RESULT_OK) {
+            val uri = data?.data ?: return
+            try {
+                contentResolver.openInputStream(uri)?.use { inp ->
+                    File(filesDir, "cookies.txt").outputStream().use { inp.copyTo(it) }
+                }
+                statusTv.text = "Cookies load ho gayi"
+                log("cookies.txt load ho gayi. Ab link dobara try karein.")
+            } catch (e: Exception) {
+                log("Cookies error: ${e.message}")
+            }
+        }
+    }
+
+    private fun updateYtDlp() {
+        if (!ready) {
+            Toast.makeText(this, "App abhi tayyar ho rahi hai", Toast.LENGTH_SHORT).show()
+            return
+        }
+        updBtn.isEnabled = false
+        statusTv.text = "yt-dlp update ho raha hai..."
+        thread {
+            try {
+                val st = YoutubeDL.getInstance().updateYoutubeDL(application, YoutubeDL.UpdateChannel.NIGHTLY)
+                log("Update: $st")
+                runOnUiThread { statusTv.text = "Update mukammal" }
+            } catch (e: Exception) {
+                log("Update error: ${e.message}")
+                runOnUiThread { statusTv.text = "Update error" }
+            } finally {
+                runOnUiThread { updBtn.isEnabled = true }
+            }
+        }
     }
 
     private fun startDownload() {
@@ -185,6 +249,10 @@ class MainActivity : Activity() {
                 req.addOption("-o", tmp.absolutePath + "/%(title).150s.%(ext)s")
                 req.addOption("--windows-filenames")
                 req.addOption(if (playlist) "--yes-playlist" else "--no-playlist")
+
+                // Agar cookies.txt load ki hui hai to YouTube ke "Sign in" check ke liye use hogi
+                val ck = File(filesDir, "cookies.txt")
+                if (ck.exists()) req.addOption("--cookies", ck.absolutePath)
 
                 if (audio) {
                     req.addOption("-x")
